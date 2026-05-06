@@ -1,0 +1,33 @@
+# Configuration du tool iCloud Bypass
+# Fichier de configuration pour iPad A2152 (puce A10)
+
+device:
+  model: "iPad7,5"
+  identifier: "A2152"
+  chip: "A10"
+  architecture: "arm64"
+
+exploit:
+  name: "checkm8"
+  tool: "ipwndfu"
+  repo: "https://github.com/axi0mX/ipwndfu.git"
+
+firmware:
+  version: "17.7.5"
+  ipsw_base_url: "https://..."
+
+ramdisk:
+  size_mb: 200
+  label: "SSHRamdisk"
+  mount_point: "./ramdisk_mnt"
+
+paths:
+  activation_files:
+    springboard_plist: "./com.apple.springboard.plist"
+    preferences_plist: "./com.apple.preferences.plist"
+    hosts_file: "./hosts"
+    setup_patched: "./Setup_patched.app"
+
+logging:
+  level: "INFO"
+  file: "bypass.log"
