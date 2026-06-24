@@ -1,0 +1,130 @@
+# =============================================================================
+# Sports Predictor — Configuration Docker Compose
+# =============================================================================
+# Lance tous les services : API + PostgreSQL + MLflow
+#
+# Usage:
+#   docker-compose up -d              → lancer tous les services
+#   docker-compose up -d postgres     → lancer seulement PostgreSQL
+#   docker-compose logs -f api        → logs de l'API
+
+version: "3.8"
+
+services:
+  # ---------------------------------------------------------------------------
+  # API FastAPI
+  # ---------------------------------------------------------------------------
+  api:
+    build: .
+    container_name: sports-predictor-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=sports_predictor
+      - DB_USER=predictor
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - SPORTMONKS_TOKEN=${SPORTMONKS_TOKEN:-}
+      - ODDS_API_KEY=${ODDS_API_KEY:-}
+      - API_SPORTS_KEY=${API_SPORTS_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./mlruns:/app/mlruns
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Scheduler (pipelines ETL)
+  # ---------------------------------------------------------------------------
+  scheduler:
+    build: .
+    container_name: sports-predictor-scheduler
+    command: python -c "from pipeline.scheduler import PipelineScheduler; import asyncio; sched = PipelineScheduler(); sched.start(); asyncio.get_event_loop().run_forever()"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=sports_predictor
+      - DB_USER=predictor
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - SPORTMONKS_TOKEN=${SPORTMONKS_TOKEN:-}
+      - ODDS_API_KEY=${ODDS_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./mlruns:/app/mlruns
+      - ./logs:/app/logs
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: sports-predictor-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=sports_predictor
+      - POSTGRES_USER=predictor
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U predictor -d sports_predictor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MLflow Tracking Server
+  # ---------------------------------------------------------------------------
+  mlflow:
+    image: python:3.12-slim
+    container_name: sports-predictor-mlflow
+    command: >
+      sh -c "pip install mlflow psycopg2-binary &&
+             mlflow server --host 0.0.0.0 --port 5000
+             --backend-store-uri postgresql://predictor:${DB_PASSWORD:-changeme}@postgres:5432/mlflow
+             --default-artifact-root /app/mlruns"
+    ports:
+      - "5000:5000"
+    environment:
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./mlruns:/app/mlruns
+
+  # ---------------------------------------------------------------------------
+  # pgAdmin (optionnel - interface DB)
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: sports-predictor-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@sportspredictor.com
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
